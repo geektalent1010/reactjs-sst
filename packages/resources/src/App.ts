@@ -6,6 +6,8 @@ import * as cdk from "@aws-cdk/core";
 import * as cxapi from "@aws-cdk/cx-api";
 import { execSync } from "child_process";
 
+import { Stack } from "./Stack";
+import { ISstConstruct, ISstConstructInfo } from "./Construct";
 import { FunctionProps, FunctionHandlerProps } from "./Function";
 import { StaticSiteEnvironmentOutputsInfo } from "./StaticSite";
 import { getEsbuildMetafileName } from "./util/nodeBuilder";
@@ -96,9 +98,17 @@ export interface AppDeployProps {
    * @default - Defaults to undefined
    */
   readonly synthCallback?: (
-    lambdaHandlers: Array<FunctionHandlerProps>,
-    staticSiteEnvironments: StaticSiteEnvironmentOutputsInfo[]
+    lambdaHandlers: FunctionHandlerProps[],
+    staticSiteEnvironments: StaticSiteEnvironmentOutputsInfo[],
+    constructs: AppConstructProps[]
   ) => void;
+}
+
+export interface AppConstructProps {
+  readonly type: string;
+  readonly stack: string;
+  readonly name: string;
+  readonly props: ISstConstructInfo;
 }
 
 export type AppProps = cdk.AppProps;
@@ -133,15 +143,21 @@ export class App extends cdk.App {
    * The callback after synth completes.
    */
   private readonly synthCallback?: (
-    lambdaHandlers: Array<FunctionHandlerProps>,
-    staticSiteEnvironments: StaticSiteEnvironmentOutputsInfo[]
+    lambdaHandlers: FunctionHandlerProps[],
+    staticSiteEnvironments: StaticSiteEnvironmentOutputsInfo[],
+    constructs: AppConstructProps[]
   ) => void;
 
   /**
    * A list of Lambda functions in the app
    */
-  private readonly lambdaHandlers: Array<FunctionHandlerProps> = [];
+  private readonly lambdaHandlers: FunctionHandlerProps[] = [];
   private readonly staticSiteEnvironments: StaticSiteEnvironmentOutputsInfo[] = [];
+
+  /**
+   * A list of SST constructs in the app
+   */
+  private readonly constructs: AppConstructProps[] = [];
 
   /**
    * Skip building Function code
@@ -216,7 +232,7 @@ export class App extends cdk.App {
 
     // Run callback after synth has finished
     if (this.synthCallback) {
-      this.synthCallback(this.lambdaHandlers, this.staticSiteEnvironments);
+      this.synthCallback(this.lambdaHandlers, this.staticSiteEnvironments, this.constructs);
     }
 
     return cloudAssembly;
@@ -235,6 +251,14 @@ export class App extends cdk.App {
     environment: StaticSiteEnvironmentOutputsInfo
   ): void {
     this.staticSiteEnvironments.push(environment);
+  }
+
+  registerConstruct(construct: ISstConstruct): void {
+    const type = construct.constructor.name;
+    const stack = Stack.of(construct).node.id;
+    const name = construct.node.id;
+    const props = construct.getConstructInfo();
+    this.constructs.push({ type, stack, name, props });
   }
 
   processInputFiles(): void {

@@ -7,6 +7,8 @@ import * as elb from "@aws-cdk/aws-elasticloadbalancingv2";
 import * as logs from "@aws-cdk/aws-logs";
 
 import { App } from "./App";
+import { Stack } from "./Stack";
+import { ISstConstruct, ISstConstructInfo } from "./Construct";
 import { Function as Fn, FunctionProps, FunctionDefinition } from "./Function";
 import { Permissions } from "./util/permission";
 import * as apigV2Domain from "./util/apiGatewayV2Domain";
@@ -101,11 +103,16 @@ export interface ApiAlbRouteProps {
 
 export type ApiCustomDomainProps = apigV2Domain.CustomDomainProps;
 
+interface ApiConstructRouteInfo {
+  readonly method: string;
+  readonly path: string;
+}
+
 /////////////////////
 // Construct
 /////////////////////
 
-export class Api extends cdk.Construct {
+export class Api extends cdk.Construct implements ISstConstruct {
   public readonly httpApi: apig.HttpApi;
   public readonly accessLogGroup?: logs.LogGroup;
   public readonly apiGatewayDomain?: apig.DomainName;
@@ -114,6 +121,7 @@ export class Api extends cdk.Construct {
   private readonly routesData: {
     [key: string]: Fn | string | elb.IApplicationListener;
   };
+  private readonly routesInfo: { [key: string]: ApiConstructRouteInfo };
   private readonly permissionsAttachedForAllRoutes: Permissions[];
   private readonly defaultFunctionProps?: FunctionProps;
   private readonly defaultAuthorizer?:
@@ -141,6 +149,7 @@ export class Api extends cdk.Construct {
       defaultPayloadFormatVersion,
     } = props || {};
     this.routesData = {};
+    this.routesInfo = {};
     this.permissionsAttachedForAllRoutes = [];
     this.defaultFunctionProps = defaultFunctionProps;
     this.defaultAuthorizer = defaultAuthorizer;
@@ -226,6 +235,11 @@ export class Api extends cdk.Construct {
     ///////////////////////////
 
     this.addRoutes(this, routes || {});
+
+    ///////////////////
+    // Register Construct
+    ///////////////////
+    root.registerConstruct(this);
   }
 
   public get url(): string {
@@ -279,6 +293,22 @@ export class Api extends cdk.Construct {
     }
 
     fn.attachPermissions(permissions);
+  }
+
+  public getConstructInfo(): ISstConstructInfo {
+    // imported
+    if (!cdk.Token.isUnresolved(this.httpApi.apiId)) {
+      return {
+        httpApiId: this.httpApi.apiId,
+        routes: this.routesInfo,
+      };
+    }
+    // created
+    const cfn = this.httpApi.node.defaultChild as apig.CfnApi;
+    return {
+      httpApiLogicalId: Stack.of(this).getLogicalId(cfn),
+      routes: this.routesInfo,
+    };
   }
 
   private buildCorsConfig(
@@ -342,16 +372,20 @@ export class Api extends cdk.Construct {
     ///////////////////
     let postfixName;
     let httpRouteKey;
+    let methodStr: string;
+    let path;
     if (routeKey === "$default") {
       postfixName = "default";
       httpRouteKey = apig.HttpRouteKey.DEFAULT;
+      methodStr = "ANY";
+      path = routeKey;
     } else {
       const routeKeyParts = routeKey.split(" ");
       if (routeKeyParts.length !== 2) {
         throw new Error(`Invalid route ${routeKey}`);
       }
-      const methodStr = routeKeyParts[0].toUpperCase();
-      const path = routeKeyParts[1];
+      methodStr = routeKeyParts[0].toUpperCase();
+      path = routeKeyParts[1];
       const method = allowedMethods.find((per) => per === methodStr);
       if (!method) {
         throw new Error(`Invalid method defined for "${routeKey}"`);
@@ -419,6 +453,14 @@ export class Api extends cdk.Construct {
       const cfnRoute = route.node.defaultChild as apig.CfnRoute;
       cfnRoute.authorizationType = authorizationType;
     }
+
+    ///////////////////
+    // Store function
+    ///////////////////
+    this.routesInfo[routeKey] = {
+      method: methodStr,
+      path,
+    };
   }
 
   private createHttpIntegration(
@@ -518,7 +560,7 @@ export class Api extends cdk.Construct {
     // Store route
     this.routesData[routeKey] = lambda;
 
-    // attached existing permissions
+    // Attached existing permissions
     this.permissionsAttachedForAllRoutes.forEach((permissions) =>
       lambda.attachPermissions(permissions)
     );
