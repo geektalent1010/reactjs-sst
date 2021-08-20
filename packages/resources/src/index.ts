@@ -9,6 +9,7 @@ export * from "./Topic";
 export * from "./Bucket";
 export * from "./EventBus";
 export * from "./Function";
+export * from "./FunctionNext";
 export * from "./ApolloApi";
 export * from "./AppSyncApi";
 export * from "./DebugStack";

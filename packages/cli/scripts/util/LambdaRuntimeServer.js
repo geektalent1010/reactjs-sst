@@ -31,6 +31,7 @@ module.exports = class LambdaRuntimeServer {
       express.json({
         type: ["application/json", "application/*+json"],
         limit: "10mb",
+        strict: false,
       })
     );
 

@@ -45,6 +45,7 @@ const CdkWatcherState = require("./util/CdkWatcherState");
 const LambdaWatcherState = require("./util/LambdaWatcherState");
 const LambdaRuntimeServer = require("./util/LambdaRuntimeServer");
 const { serializeError, deserializeError } = require("../lib/serializeError");
+const { Server } = require("@serverless-stack/core");
 
 // Setup logger
 const wsLogger = getChildLogger("websocket");
@@ -60,6 +61,7 @@ let cdkWatcherState;
 let lambdaWatcherState;
 let esbuildService;
 let lambdaServer;
+let server;
 let debugEndpoint;
 let debugBucketArn;
 let debugBucketName;
@@ -295,6 +297,11 @@ async function startWatcher() {
 async function startRuntimeServer(port) {
   // note: 0.0.0.0 does not work on Windows
   lambdaServer = new LambdaRuntimeServer();
+  console.log("Starting new server");
+  server = Server.start({
+    rootDir: process.cwd(),
+    port: 12345,
+  });
   await lambdaServer.start("127.0.0.1", port);
 }
 function addInputListener() {
@@ -581,8 +588,8 @@ async function runTranspileNode(
     logLevel: process.env.DEBUG ? "warning" : "error",
     ...esbuildConfigOverrides,
   });
-  require('fs').writeFileSync(metafile, JSON.stringify(result.metafile))
-  return result
+  require("fs").writeFileSync(metafile, JSON.stringify(result.metafile));
+  return result;
 }
 async function runReTranspileNode(esbuilder) {
   await esbuilder.rebuild();
@@ -1197,15 +1204,17 @@ async function onClientMessage(message) {
 
   // Unzip payload
   clientLogger.debug("Unzipping payload");
+  const unzipped = JSON.parse(zlib.unzipSync(payloadData).toString());
+
   const {
+    functionId,
     event,
     context,
     env,
     debugRequestTimeoutInMs,
     debugSrcPath,
     debugSrcHandler,
-  } = JSON.parse(zlib.unzipSync(payloadData).toString());
-
+  } = unzipped;
   // Print request info
   clientLogger.debug("Parsing event source");
   const eventSource = parseEventSource(event);
@@ -1239,6 +1248,31 @@ async function onClientMessage(message) {
   const timeoutAt = Date.now() + debugRequestTimeoutInMs;
   clientLogger.debug("Lambda timeout settings", { timeoutAt });
 
+  if (functionId) {
+    const result = await server.invoke(functionId, {
+      timeoutAt,
+      event,
+      context,
+    });
+    const payload = zlib.gzipSync(
+      JSON.stringify({
+        responseData: result,
+      })
+    );
+    const payloadBase64 = payload.toString("base64");
+    // payload fits into 1 WebSocket frame (limit is 32KB)
+    clientLogger.debug(`Sending payload via WebSocket`);
+    clientState.ws.send(
+      JSON.stringify({
+        action: "client.lambdaResponse",
+        debugRequestId,
+        stubConnectionId,
+        payload: payloadBase64,
+      })
+    );
+    return;
+  }
+
   // Get transpiled handler
   let runtime;
   let transpiledHandler;
@@ -1270,6 +1304,7 @@ async function onClientMessage(message) {
   }
 
   // Add request to RUNTIME server
+  const time = Date.now();
   clientLogger.debug("Adding request to RUNTIME server...");
   lambdaServer.addRequest({
     debugRequestId,
@@ -1593,6 +1628,7 @@ async function onClientMessage(message) {
     const payloadBase64 = payload.toString("base64");
     // payload fits into 1 WebSocket frame (limit is 32KB)
     if (payloadBase64.length < 32000) {
+      console.log(Date.now() - time);
       clientLogger.debug(`Sending payload via WebSocket`);
       clientState.ws.send(
         JSON.stringify({

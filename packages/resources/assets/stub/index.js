@@ -135,6 +135,7 @@ exports.main = function (event, context, callback) {
     // Send payload in chunks to get around API Gateway 128KB limit
     const payload = zlib.gzipSync(
       JSON.stringify({
+        functionId: process.env.SST_FUNCTION_ID,
         debugRequestTimeoutInMs: context.getRemainingTimeInMillis(),
         debugSrcPath: process.env.SST_DEBUG_SRC_PATH,
         debugSrcHandler: process.env.SST_DEBUG_SRC_HANDLER,
