@@ -1577,7 +1577,7 @@ function isStackNotExistException(e) {
 import * as Util from "./util";
 import { Update } from "./update";
 import { Packager } from "./packager";
-import { Server } from "./server";
+import { Runtime } from "./runtime";
 
 module.exports = {
   diff,
@@ -1595,5 +1595,5 @@ module.exports = {
   Util,
   Update,
   Packager,
-  Server,
+  Runtime,
 };

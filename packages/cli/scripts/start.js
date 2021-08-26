@@ -1,5 +1,3 @@
-"use strict";
-
 const os = require("os");
 const zlib = require("zlib");
 const path = require("path");
@@ -45,7 +43,7 @@ const CdkWatcherState = require("./util/CdkWatcherState");
 const LambdaWatcherState = require("./util/LambdaWatcherState");
 const LambdaRuntimeServer = require("./util/LambdaRuntimeServer");
 const { serializeError, deserializeError } = require("../lib/serializeError");
-const { Server } = require("@serverless-stack/core");
+const { Runtime } = require("@serverless-stack/core");
 
 // Setup logger
 const wsLogger = getChildLogger("websocket");
@@ -298,9 +296,15 @@ async function startRuntimeServer(port) {
   // note: 0.0.0.0 does not work on Windows
   lambdaServer = new LambdaRuntimeServer();
   console.log("Starting new server");
-  server = Server.start({
-    rootDir: process.cwd(),
+  server = Runtime.Server.start({
     port: 12345,
+    functions: fs
+      .readFileSync(path.join(process.cwd(), ".build/sst-functions.jsonl"))
+      .toString()
+      .split("\n")
+      .map((i) => i.trim())
+      .filter((i) => i)
+      .map(JSON.parse),
   });
   await lambdaServer.start("127.0.0.1", port);
 }
@@ -1215,6 +1219,7 @@ async function onClientMessage(message) {
     debugSrcPath,
     debugSrcHandler,
   } = unzipped;
+  console.log(unzipped);
   // Print request info
   clientLogger.debug("Parsing event source");
   const eventSource = parseEventSource(event);
@@ -1304,7 +1309,6 @@ async function onClientMessage(message) {
   }
 
   // Add request to RUNTIME server
-  const time = Date.now();
   clientLogger.debug("Adding request to RUNTIME server...");
   lambdaServer.addRequest({
     debugRequestId,
@@ -1628,7 +1632,6 @@ async function onClientMessage(message) {
     const payloadBase64 = payload.toString("base64");
     // payload fits into 1 WebSocket frame (limit is 32KB)
     if (payloadBase64.length < 32000) {
-      console.log(Date.now() - time);
       clientLogger.debug(`Sending payload via WebSocket`);
       clientState.ws.send(
         JSON.stringify({

@@ -4,50 +4,9 @@ import * as fs from "fs";
 import path from "path";
 import { App } from ".";
 import { execSync } from "child_process";
+import { Runtime } from "@serverless-stack/core/dist/runtime";
 
-type CustomRuntimeOpts = {
-  srcPath: string;
-  outPath: string;
-  handler: string;
-};
-
-type CustomRuntimeCommand = {
-  command: string;
-  environment?: Record<string, string>;
-};
-
-type CustomRuntimeDefinition = {
-  build: CustomRuntimeCommand;
-  bundle: CustomRuntimeCommand;
-  start: CustomRuntimeCommand;
-  runtime: lambda.Runtime;
-  handler: string;
-};
-
-type CustomRuntime = (opts: CustomRuntimeOpts) => CustomRuntimeDefinition;
-
-export const GoRuntime = (): CustomRuntime => {
-  return (opts) => {
-    return {
-      build: {
-        command: `go build -ldflags="-s -w" -o ${opts.outPath}/handler ${opts.handler}`,
-        environment: {
-          GOOS: "linux",
-          CGO_ENABLED: "0",
-        },
-      },
-      start: {
-        command: `${opts.outPath}/handler`,
-      },
-      bundle: {
-        command: `go build ${opts.handler} -o ${opts.outPath}/handler`,
-      },
-      runtime: lambda.Runtime.GO_1_X,
-      handler: "handler",
-    };
-  };
-};
-
+/*
 export const NodeRuntime = (): CustomRuntime => {
   return (opts) => {
     const [left, handler] = opts.handler.split(".");
@@ -70,11 +29,12 @@ export const NodeRuntime = (): CustomRuntime => {
     };
   };
 };
+*/
 
 type Props = {
   handler: string;
   srcPath?: string;
-  customRuntime: CustomRuntime;
+  plugin: Runtime.Plugin;
 };
 
 export class FunctionNext extends cdk.Construct {
@@ -90,7 +50,7 @@ export class FunctionNext extends cdk.Construct {
     // Temporarily use construct id
     const functionId = id;
     const outPath = path.join(app.buildDir, functionId.toString());
-    const definition = props.customRuntime({
+    const definition = props.plugin({
       outPath,
       srcPath: props.srcPath || process.cwd(),
       handler: props.handler,
