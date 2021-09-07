@@ -39,15 +39,41 @@ export enum ApiPayloadFormatVersion {
 // Interfaces
 /////////////////////
 
+type NextFunctionProps = {
+  type: "function";
+} & FunctionProps;
+
+type NextFunctionRoute = {
+  type: "function-route";
+} & ApiFunctionRouteProps;
+
+type NextHttp = {
+  type: "http";
+} & ApiHttpRouteProps;
+
+type NextAlb = {
+  type: "alb";
+} & ApiAlbRouteProps;
+
+type NextRouteDefinition =
+  | NextFunctionProps
+  | NextHttp
+  | NextAlb
+  | NextFunctionProps;
+
+type OldRouteDefinition =
+  | string
+  | Function
+  | FunctionProps
+  | ApiFunctionRouteProps
+  | ApiHttpRouteProps
+  | ApiAlbRouteProps;
+
+type RouteDefinition = NextRouteDefinition;
+
 export interface ApiProps {
   readonly httpApi?: apig.IHttpApi | apig.HttpApiProps;
-  readonly routes?: {
-    [key: string]:
-      | FunctionDefinition
-      | ApiFunctionRouteProps
-      | ApiHttpRouteProps
-      | ApiAlbRouteProps;
-  };
+  readonly routes?: Record<string, RouteDefinition>;
   readonly cors?: boolean | apig.CorsPreflightOptions;
   readonly accessLog?:
     | boolean
