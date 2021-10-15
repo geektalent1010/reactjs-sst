@@ -1,6 +1,7 @@
 "use strict";
 
 const path = require("path");
+const { ESLint } = require("eslint");
 const util = require("util");
 const fs = require("fs-extra");
 const chalk = require("chalk");
@@ -343,36 +344,32 @@ async function lint(inputFiles) {
       file.indexOf("node_modules") === -1 &&
       (file.endsWith(".ts") || file.endsWith(".js"))
   );
+  console.log(inputFiles);
 
   logger.info(chalk.grey("Linting source"));
+  // 1. Create an instance with the `fix` option.
+  const eslint = new ESLint({
+    fix: true,
+    globInputPaths: false,
+    // Handling nested ESLint projects in Yarn Workspaces
+    // https://github.com/serverless-stack/serverless-stack/issues/11
+    resolvePluginsRelativeTo: ".",
+    errorOnUnmatchedPattern: false,
+  });
 
-  const response = spawn.sync(
-    "node",
-    [
-      path.join(paths.appBuildPath, "eslint.js"),
-      process.env.NO_COLOR === "true" ? "--no-color" : "--color",
-      ...inputFiles,
-    ],
-    // Using the ownPath instead of the appPath because there are cases
-    // where npm flattens the dependecies and this casues eslint to be
-    // unable to find the parsers and plugins. The ownPath hack seems
-    // to fix this issue.
-    // https://github.com/serverless-stack/serverless-stack/pull/68
-    // Steps to replicate, repo: https://github.com/jayair/sst-eu-example
-    // Do `yarn add standard -D` and `sst build`
-    { stdio: "inherit", cwd: paths.ownPath }
-  );
+  // 2. Lint files. This doesn't modify target files.
+  const results = await eslint.lintFiles(".");
 
-  if (response.error) {
-    logger.info(response.error);
-    throw new Error("There was a problem linting the source.");
-  } else if (response.stderr) {
-    logger.info(response.stderr);
-    throw new Error("There was a problem linting the source.");
-  } else if (response.status === 1) {
-    throw new Error("There was a problem linting the source.");
-  } else if (response.stdout) {
-    logger.debug(response.stdout);
+  // 3. Modify the files with the fixed code.
+  await ESLint.outputFixes(results);
+
+  // 4. Format the results.
+  const formatter = await eslint.loadFormatter("stylish");
+  const resultText = formatter.format(results);
+
+  // 5. Output it.
+  if (resultText) {
+    console.log(resultText);
   }
 }
 async function typeCheck(inputFiles) {
