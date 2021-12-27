@@ -17,5 +17,6 @@ export function useUsersQuery(pool: string) {
       );
       return response;
     },
+    getNextPageParam: (response) => response.PaginationToken,
   });
 }

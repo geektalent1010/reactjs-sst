@@ -83,7 +83,7 @@ function Main() {
     return <Splash>Error fetching credentials from CLI</Splash>;
 
   return (
-    <div className={darkMode.enabled ? darkTheme : ""}>
+    <div className={darkMode.enabled ? darkTheme : ""} id="main">
       <Realtime />
       <BrowserRouter>
         <Routes>
