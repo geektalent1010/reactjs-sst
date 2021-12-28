@@ -197,11 +197,10 @@ export class Server {
       );
 
       if (req.method === "OPTIONS") return res.send();
-      const u = new url.URL(req.path.substring(7));
+      const u = new url.URL(req.url.substring(7));
       const forward = https.request(
+        u,
         {
-          hostname: u.hostname,
-          path: u.pathname,
           headers: {
             ...req.headers,
             host: u.hostname,
@@ -213,7 +212,7 @@ export class Server {
           proxied.pipe(res);
         }
       );
-      forward.write(req.body);
+      if (req.method !== "GET") forward.write(req.body);
       forward.end();
     });
   }
