@@ -6,6 +6,7 @@ import { MainStack as ApolloStack } from "./apollo-api-stack";
 import { MainStack as CronStack } from "./cron-stack";
 import { MainStack as BucketStack } from "./bucket-stack";
 //import { MainStack as TableStack } from "./table-stack";
+import { MainStack as RDSStack } from "./rds-stack";
 import { MainStack as TopicStack } from "./topic-stack";
 import { MainStack as AppsyncStack } from "./app-sync-api-stack";
 import { MainStack as WebsocketStack } from "./websocket-api-stack";
@@ -34,6 +35,7 @@ export default async function main(app: sst.App) {
   new AppsyncStack(app, "appsync");
   new WebsocketStack(app, "websocket");
 
+  new RDSStack(app, "rds");
   new CronStack(app, "cron");
   new BucketStack(app, "bucket");
   new TopicStack(app, "topic");
