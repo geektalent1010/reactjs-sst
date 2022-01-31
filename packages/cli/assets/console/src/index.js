@@ -10,7 +10,7 @@ import { getMainDefinition } from "@apollo/client/utilities";
 import { SubscriptionClient } from "subscriptions-transport-ws";
 import React from "react";
 import ReactDOM from "react-dom";
-import App from "./App";
+import App from "./Logs";
 import reportWebVitals from "./reportWebVitals";
 
 import "./sass/custom.scss";

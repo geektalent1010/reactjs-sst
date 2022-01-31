@@ -19,6 +19,7 @@ import { H1, H3 } from "../components";
 import { FunctionMetadata } from "../../../../../resources/src/Metadata";
 import { useRealtimeState } from "~/data/global";
 import { InvocationRow } from "./Invocation";
+import { CWInvocationRow } from "./CWInvocation";
 import { Issues } from "./Issues";
 
 const Root = styled("div", {
@@ -60,7 +61,26 @@ export function Detail() {
             <H3>Invoke</H3>
             <Invoke metadata={functionMetadata} />
           </Stack>
-          <Invocations function={functionMetadata} />
+          {
+          /* TODO */
+
+          //<Stack space="lg">
+          //  <H3>Invocations</H3>
+          //  <Invocations function={functionMetadata} />
+          //</Stack>
+
+          <Stack space="md">
+            <H3>Logs</H3>
+            <Logs functionName={func.data?.FunctionName!} runtime={func.data?.Runtime!} />
+          </Stack>
+          }
+
+          {!functionState?.warm && false && (
+            <Stack space="md">
+              <H3>Logs</H3>
+              <Logs functionName={func.data?.FunctionName!} runtime={func.data?.Runtime!} />
+            </Stack>
+          )}
         </Stack>
       </Root>
     </>
@@ -172,16 +192,22 @@ function Invocations(props: { function: FunctionMetadata }) {
   );
 }
 
-function Logs(props: { functionName: string }) {
-  const logs = useLogsQuery({
+function Logs(props: { functionName: string, runtime: string }) {
+  // Start fetching log in the last 1 minute
+  const invocations = useLogsQuery({
     functionName: props.functionName,
+    runtime: props.runtime,
   });
 
-  const ref: any = useRef<HTMLDivElement>();
-  const loaderVisible = useOnScreen(ref);
+  // Tail every 3 seconds
   useEffect(() => {
-    if (loaderVisible && logs.hasNextPage) logs.fetchNextPage();
-  }, [loaderVisible]);
+    const interval = setInterval(() => {
+      invocations.query.fetchNextPage();
+      console.log('tailing timer called');
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div
@@ -190,24 +216,16 @@ function Logs(props: { functionName: string }) {
         width: "100%",
       }}
     >
-      {logs.data?.pages
-        .flatMap((page) => page.events)
-        .map((entry, index) => (
-          <LogRow key={index}>
-            <LogTime>{new Date(entry?.timestamp!).toISOString()}</LogTime>
-            <Spacer horizontal="lg" />
-            <LogMessage>{entry?.message}</LogMessage>
-          </LogRow>
+      {invocations.data?.map((invocation, index) => (
+        <CWInvocationRow key={index} invocation={invocation} />
         ))}
       {
-        <LogLoader ref={ref}>
-          {logs.isError
+        <LogLoader>
+          {invocations.query.isError
             ? "No Logs"
-            : logs.isLoading
+            : invocations.query.isLoading
             ? "Loading..."
-            : logs.hasNextPage
-            ? "Load More"
-            : "End of stream"}
+            : "Waiting for new logs..."}
         </LogLoader>
       }
     </div>

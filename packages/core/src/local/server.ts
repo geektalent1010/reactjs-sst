@@ -1,7 +1,11 @@
 import { Patch, produceWithPatches, enablePatches } from "immer";
 enablePatches();
 
+import fs from "fs";
 import ws from "ws";
+import path from "path";
+import http from "http";
+import https from "https";
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
 import { FunctionState, router, State } from "./router";
 import { EventDelegate } from "../events";
@@ -28,9 +32,12 @@ export function useLocalServer(opts: Opts) {
   const onDeploy = new EventDelegate<void>();
 
   // Wire up websocket
-  const wss = new ws.Server({
-    port: opts.port,
+  const server = https.createServer({
+    cert: fs.readFileSync("/Users/frank/Downloads/wss/cert/certificate.crt"),
+    key: fs.readFileSync("/Users/frank/Downloads/wss/cert/private.key"),
   });
+  const wss = new ws.Server({ server });
+  server.listen(opts.port);
   const handler = applyWSSHandler({
     wss,
     router,
