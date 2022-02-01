@@ -52,6 +52,35 @@ type LogsOpts = {
   runtime: string;
 };
 
+export type Invocation = {
+  logs: Log[];
+  requestId?: string;
+  logStream?: string;
+  firstLineTime?: number;
+  startTime?: number;
+  endTime?: number;
+  duration?: number;
+  memSize?: number;
+  memUsed?: number;
+  xrayTraceId?: string;
+  logLevel: "INFO" | "WARN" | "ERROR";
+};
+export type Log = {
+  id: string;
+  message: string;
+  timestamp: number;
+  level: "INFO" | "WARN" | "ERROR" | "START" | "END" | "REPORT";
+  requestId?: string,
+  logStream: string,
+  invocationMetadata?: {
+    duration?: number;
+    memSize?: number;
+    memUsed?: number;
+    xrayTraceId?: string;
+    isFailed?: boolean;
+  },
+};
+
 export function useLogsQuery(opts: LogsOpts) {
   const cw = useClient(CloudWatchLogsClient);
   const resp = useInfiniteQuery({
@@ -71,10 +100,13 @@ export function useLogsQuery(opts: LogsOpts) {
     getNextPageParam: () => true,
   });
 
+  // TODO
   const events = resp.data?.pages.flatMap(({ events }) => events) || [];
+  //console.log(JSON.stringify(resp.data.pages.pop()));
+  //const events = mockLogEvents();
   const unique = uniqBy(events, (event) => event?.eventId);
   const sorted = sortLogs(unique);
-  const parsed = sorted.map(log => parseLogMetadata(log, opts.runtime));
+  const parsed = sorted.map(event => parseLogMetadata(event, opts.runtime));
   const invocations = groupLogs(parsed);
   return { data: invocations, query: resp };
 }
@@ -97,99 +129,89 @@ function sortLogs(logs) {
 }
 
 function parseLogMetadata(event, runtime) {
-  let meta;
+  let log: Log = {
+    id: event.eventId,
+    message: event.message.trim(),
+    timestamp: event.timestamp,
+    logStream: event.logStreamName,
+  };
 
   try {
-    meta =
-      meta ||
-      parseLambdaSTART(event) ||
-      parseLambdaEND(event) ||
-      parseLambdaREPORT(event);
+    parseLambdaSTART(log) ||
+    parseLambdaEND(log) ||
+    parseLambdaREPORT(log);
 
-    const spcParts = event.message.split(" ");
+    const spcParts = log.message.split(" ");
 
-    meta =
-      meta ||
-      parseLambdaUnknownApplicationError(event) ||
-      parseLambdaModuleInitializationError(event) ||
-      parseLambdaExited(event, spcParts) ||
-      parseLambdaTimeoutOrMessage(event, spcParts);
+    log.level ||
+    parseLambdaUnknownApplicationError(log) ||
+    parseLambdaModuleInitializationError(log) ||
+    parseLambdaExited(log, spcParts) ||
+    parseLambdaTimeoutOrMessage(log, spcParts);
 
-    const tabParts = event.message.split("\t");
+    const tabParts = log.message.split("\t");
 
     ///////////////////
     // Node Errors
     ///////////////////
     if (runtime.startsWith("nodejs")) {
-      meta = meta || parseLambdaNodeLog(event, tabParts);
+      log.level || parseLambdaNodeLog(log, tabParts);
     }
 
     ///////////////////
     // Python Errors
     ///////////////////
     if (runtime.startsWith("python")) {
-      meta =
-        meta ||
-        parseLambdaPythonLog(event, tabParts) ||
-        parseLambdaPythonTraceback(event);
+      log.level ||
+      parseLambdaPythonLog(log, tabParts) ||
+      parseLambdaPythonTraceback(log);
     }
   } catch (e) {
   }
 
-  meta = meta || { type: "INFO", summary: event.message }
+  // Did not match any pattern
+  if (!log.level) {
+    log.level = "INFO";
+  }
 
-  return { ...meta,
-    id: event.eventId,
-    time: event.timestamp,
-    message: event.message.trim(),
-    logStream: event.logStreamName,
-  };
+  return log;
 }
-function parseLambdaSTART(event) {
+function parseLambdaSTART(log) {
   // START RequestId: 184b0c52-84d2-4c63-b4ef-93db5bb2189c Version: $LATEST
-  if (event.message.startsWith("START RequestId: ")) {
-    return {
-      type: "START",
-      requestId: event.message.substr(17, 36),
-    };
+  if (log.message.startsWith("START RequestId: ")) {
+    log.level = "START";
+    log.requestId = log.message.substr(17, 36);
   }
 }
-function parseLambdaEND(event) {
+function parseLambdaEND(log) {
   // END RequestId: 184b0c52-84d2-4c63-b4ef-93db5bb2189c
-  if (event.message.startsWith("END RequestId: ")) {
-    return {
-      type: "END",
-      requestId: event.message.substr(15, 36),
-    };
+  if (log.message.startsWith("END RequestId: ")) {
+    log.level = "END";
+    log.requestId = log.message.substr(15, 36);
   }
 }
-function parseLambdaREPORT(event) {
+function parseLambdaREPORT(log) {
   // REPORT RequestId: 6cbfe426-927b-43a3-b7b6-a525a3fd2756	Duration: 2.63 ms	Billed Duration: 100 ms	Memory Size: 1024 MB	Max Memory Used: 58 MB	Init Duration: 2.22 ms
-  if (event.message.startsWith("REPORT RequestId: ")) {
-    const meta = {
-      type: "REPORT",
-      requestId: event.message.substr(18, 36),
-      duration: undefined,
-      memSize: undefined,
-      memUsed: undefined,
-      xrayTraceId: undefined,
-    };
-    event.message.split("\t").forEach((part) => {
+  if (log.message.startsWith("REPORT RequestId: ")) {
+    log.level = "REPORT";
+    log.requestId = log.message.substr(18, 36);
+    log.invocationMetadata = log.invocationMetadata || {};
+
+    log.message.split("\t").forEach((part) => {
       part = part.trim();
       if (part.startsWith("Duration")) {
-        meta.duration = part.split(" ")[1];
+        log.invocationMetadata.duration = part.split(" ")[1];
       } else if (part.startsWith("Memory Size")) {
-        meta.memSize = part.split(" ")[2];
+        log.invocationMetadata.memSize = part.split(" ")[2];
       } else if (part.startsWith("Max Memory Used")) {
-        meta.memUsed = part.split(" ")[3];
+        log.invocationMetadata.memUsed = part.split(" ")[3];
       } else if (part.startsWith("XRAY TraceId")) {
-        meta.xrayTraceId = part.split(" ")[2];
+        log.invocationMetadata.xrayTraceId = part.split(" ")[2];
       }
     });
-    return meta;
   }
 }
-function parseLambdaTimeoutOrMessage(event, spcParts) {
+function parseLambdaTimeoutOrMessage(log, spcParts) {
   // 2018-01-05T23:48:40.404Z f0fc759e-f272-11e7-87bd-577699d45526 hello
   // 2018-01-05T23:48:40.404Z f0fc759e-f272-11e7-87bd-577699d45526 Task timed out after 6.00 seconds
   if (
@@ -198,15 +220,16 @@ function parseLambdaTimeoutOrMessage(event, spcParts) {
     null &&
     spcParts[1].match(/^[0-9a-fA-F-]{36}$/) !== null
   ) {
-    const requestId = spcParts[1];
-    const summary = spcParts.slice(2).join(" ");
-    const type = summary.startsWith("Task timed out after")
-      ? "ERROR"
-      : "INFO";
-    return { type, requestId, summary };
+    const message = spcParts.slice(2).join(" ");
+    const isFailed = message.startsWith("Task timed out after");
+    log.requestId = spcParts[1];
+    log.level = isFailed ? "ERROR" : "INFO";
+    log.message = message;
+    log.invocationMetadata = log.invocationMetadata || {};
+    log.invocationMetadata.isFailed = log.invocationMetadata.isFailed || isFailed;
   }
 }
-function parseLambdaExited(event, spcParts) {
+function parseLambdaExited(log, spcParts) {
   // - Nodejs, Python 3.8
   // RequestId: 80925099-25b1-4a56-8f76-e0eda7ebb6d3 Error: Runtime exited with error: signal: aborted (core dumped)
   // - Python 2.7, 3.6, 3.7
@@ -216,29 +239,29 @@ function parseLambdaExited(event, spcParts) {
     spcParts[0] === "RequestId:" &&
     spcParts[1].match(/^[0-9a-fA-F-]{36}$/) !== null
   ) {
-    return {
-      requestId: spcParts[1],
-      type: "ERROR",
-      summary: spcParts.slice(2).join(" "),
-    };
+    const message = spcParts.slice(2).join(" ");
+    log.requestId = spcParts[1];
+    log.level = "ERROR";
+    log.message = message;
+    log.invocationMetadata = log.invocationMetadata || {};
+    log.invocationMetadata.isFailed = true;
   }
 }
-function parseLambdaUnknownApplicationError(event) {
+function parseLambdaUnknownApplicationError(log) {
   // Unknown application error occurred
-  if (event.message.startsWith("Unknown application error occurred")) {
-    return {
-      type: "ERROR",
-      summary: event.message,
-    };
+  if (log.message.startsWith("Unknown application error occurred")) {
+    log.level = "ERROR";
+    log.invocationMetadata = log.invocationMetadata || {};
   }
 }
-function parseLambdaModuleInitializationError(event) {
+function parseLambdaModuleInitializationError(log) {
   // module initialization error
-  if (event.message.startsWith("module initialization error")) {
-    return { type: "ERROR", summary: event.message };
+  if (log.message.startsWith("module initialization error")) {
+    log.level = "ERROR";
+    log.invocationMetadata = log.invocationMetadata || {};
   }
 }
-function parseLambdaNodeLog(event, tabParts) {
+function parseLambdaNodeLog(log, tabParts) {
   // - Nodejs 8.10
   // 2019-11-12T20:00:30.183Z	cc81b998-c7de-46fb-a9ef-3423ccdcda98	log hello
   // - Nodejs 10.x
@@ -270,48 +293,29 @@ function parseLambdaNodeLog(event, tabParts) {
     tabParts[0].match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/) !== null
   ) {
     // parse request id
-    const requestId =
+    log.requestId = requestId =
       tabParts[1].match(/^[0-9a-fA-F-]{36}$/) !== null
       ? tabParts[1]
       : undefined;
-    let type;
-    let summary;
-    // parse type
+    let level;
+    // parse level
     if (tabParts[2] === "INFO") {
-      return {
-        requestId,
-        type: "INFO",
-        summary: tabParts.slice(3).join("\t"),
-      };
+      log.level = "INFO";
+      log.message = tabParts.slice(3).join("\t");
     } else if (tabParts[2] === "WARN") {
-      return {
-        requestId,
-        type: "WARN",
-        summary: `Warn: ${tabParts.slice(3).join("\t")}`,
-      };
+      log.level = "WARN";
+      log.message = tabParts.slice(3).join("\t");
     } else if (tabParts[2] === "ERROR") {
-      let summary;
-      try {
-        const errorObject = JSON.parse(tabParts[4]);
-        summary = errorObject.stack[0];
-      } catch (e) {
-        summary = `Error: ${tabParts.slice(3).join("\t")}`;
-      }
-      return {
-        requestId,
-        type: "ERROR",
-        summary: `Error: ${tabParts.slice(3).join("\t")}`,
-      };
+      log.level = "ERROR";
+      log.message = tabParts.slice(3).join("\t");
     }
-
-    return {
-      requestId,
-      type: "INFO",
-      summary: tabParts.slice(2).join("\t"),
-    };
+    else {
+      log.level = "INFO";
+      log.message = tabParts.slice(2).join("\t");
+    }
   }
 }
-function parseLambdaPythonLog(event, tabParts) {
+function parseLambdaPythonLog(log, tabParts) {
   // [WARNING] 2019-11-12T20:00:30.183Z	cc81b998-c7de-46fb-a9ef-3423ccdcda98 this is a warn
   // [ERROR] 2019-11-12T20:00:30.184Z	cc81b998-c7de-46fb-a9ef-3423ccdcda98 this is an error
   // [CRITICAL] 2019-11-12T20:00:30.184Z	cc81b998-c7de-46fb-a9ef-3423ccdcda98 this is critical
@@ -321,46 +325,28 @@ function parseLambdaPythonLog(event, tabParts) {
     null &&
     tabParts[2].match(/^[0-9a-fA-F-]{36}$/) !== null
   ) {
-    let type;
-    // parse type
+    log.requestId = tabParts[2];
+    // parse level
     if (tabParts[0] === "[INFO]") {
-      type = "INFO";
+      log.level = "INFO";
     } else if (tabParts[0] === "[WARNING]") {
-      type = "WARN";
+      log.level = "WARN";
     } else if (tabParts[0] === "[ERROR]" || tabParts[0] === "[CRITICAL]") {
-      type = "ERROR";
+      log.level = "ERROR";
     } else {
-      type = "INFO";
+      log.level = "INFO";
     }
-    return {
-      requestId: tabParts[2],
-      type,
-      summary: `${tabParts[0]} ${tabParts.slice(3).join("\t")}`,
-    };
+    log.message = `${tabParts[0]} ${tabParts.slice(3).join("\t")}`;
   }
 }
-function parseLambdaPythonTraceback(event) {
+function parseLambdaPythonTraceback(log) {
   // ...  Traceback (most recent call last): ...
-  if (event.message.match(/\sTraceback \(most recent call last\):\s/) !== null) {
-    const lineParts = event.message.split("\n");
-    return { type: "ERROR", summary: lineParts[0] };
+  if (log.message.match(/\sTraceback \(most recent call last\):\s/) !== null) {
+    log.level = "ERROR";
+    log.invocationMetadata = log.invocationMetadata || {};
+    log.invocationMetadata.isFailed = true;
   }
 }
-
-export type Invocation = {
-  logs: string[];
-  requestId?: string;
-  logStream?: string;
-  firstLineTime?: number;
-  startTime?: number;
-  endTime?: number;
-  duration?: number;
-  memSize?: number;
-  memUsed?: number;
-  xrayTraceId?: string;
-  summary?: string;
-  logLevel: "INFO" | "WARN" | "ERROR";
-};
 
 function groupLogs(logs) {
   // 5 types of logs:
@@ -380,21 +366,21 @@ function groupLogs(logs) {
       currentInvocation = { logs: [], logLevel: "INFO" };
     }
 
-    if (log.type === "START") {
+    if (log.level === "START") {
       currentInvocation.logs.length > 0 && invocations.push(currentInvocation);
       currentInvocation = { logs: [], logLevel: "INFO" };
       currentInvocation.logs.push(log.message);
       currentInvocation.requestId = log.requestId;
       currentInvocation.logStream = log.logStream;
-      currentInvocation.firstLineTime = log.time;
-      currentInvocation.startTime = log.time;
+      currentInvocation.firstLineTime = log.timestamp;
+      currentInvocation.startTime = log.timestamp;
     }
-    else if (log.type === "REPORT") {
+    else if (log.level === "REPORT") {
       currentInvocation.logs.push(log.message);
       currentInvocation.requestId = currentInvocation.requestId || log.requestId;
       currentInvocation.logStream = log.logStream;
-      currentInvocation.firstLineTime = currentInvocation.firstLineTime || log.time;
-      currentInvocation.endTime = log.time;
+      currentInvocation.firstLineTime = currentInvocation.firstLineTime || log.timestamp;
+      currentInvocation.endTime = log.timestamp;
       currentInvocation.duration = log.duration;
       currentInvocation.memSize = log.memSize;
       currentInvocation.memUsed = log.memUsed;
@@ -406,15 +392,64 @@ function groupLogs(logs) {
       currentInvocation.logs.push(log.message);
       currentInvocation.requestId = currentInvocation.requestId || log.requestId;
       currentInvocation.logStream = log.logStream;
-      currentInvocation.firstLineTime = currentInvocation.firstLineTime || log.time;
-      currentInvocation.summary = currentInvocation.summary || log.summary;
-      currentInvocation.logLevel = log.type === "ERROR"
+      currentInvocation.firstLineTime = currentInvocation.firstLineTime || log.timestamp;
+      currentInvocation.logLevel = log.level === "ERROR"
         ? "ERROR"
-        : (log.type === "WARN" && currentInvocation.logLevel !== "ERROR" ? "WARN" : "INFO");
+        : (log.level === "WARN" && currentInvocation.logLevel !== "ERROR" ? "WARN" : "INFO");
     }
   });
 
   currentInvocation.logs.length > 0 && invocations.push(currentInvocation);
 
   return invocations.sort((a,b) => b.firstLineTime - a.firstLineTime);
+}
+
+function mockLogEvents() {
+  // most recent logs at the bottom
+  const messages = [];
+  [
+    mockNoEnd,
+    mockNoStart,
+    mockLongJSONSummary,
+    mockDefault,
+  ].forEach((mockFn, i) => {
+    const reqId = `${i}`.padStart(12, "0");
+    messages.push(...mockFn(reqId));
+  });
+
+  // Build log object
+  const ts = Date.now() - messages.length * 1000;
+  return messages.map((message, i) => ({
+    eventId: `366564888943019255673637982628033313325854${ts + i * 1000}`,
+    ingestionTime: ts + i * 1000,
+    logStreamName: "2022/02/01/[$LATEST]3b66f77bc3f24fee8ccd70dd7315144e",
+    message,
+    timestamp: ts + i * 1000,
+  }));
+}
+function mockDefault(reqId) {
+  return [
+    `START RequestId: 18269d91-6b89-4021-8b58-${reqId} Version: $LATEST\n`,
+    `2022-02-01T16:43:31.048Z\t18269d91-6b89-4021-8b58-${reqId}\tINFO\tsendMessage() - send request\n`,
+    `END RequestId: 18269d91-6b89-4021-8b58-${reqId}\n`,
+    `REPORT RequestId: 18269d91-6b89-4021-8b58-${reqId}\tDuration: 509.89 ms\tBilled Duration: 510 ms\tMemory Size: 1024 MB\tMax Memory Used: 80 MB\t\nXRAY TraceId: 1-61f96332-54eba86c47245db57214005f\tSegmentId: 246eafc77f3a0d33\tSampled: true\t\n`,
+  ];
+}
+function mockLongJSONSummary(reqId) {
+  return [
+    `START RequestId: 18269d91-6b89-4021-8b58-${reqId} Version: $LATEST\n`,
+    `2022-02-01T16:44:32.994Z\t46d02f3a-f831-45ff-bd2f-441552944af8\tINFO\tws.onmessage {"action":"client.lambdaResponse","debugRequestId":"46d02f3a-f831-45ff-bd2f-441552944af8-1643733872505","stubConnectionId":"M3uYidvroAMCLMA=","payload":"H4sIAAAAAAAAE6tWKkotLsjPK051SSxJVLKqViouSSwpLXbOT0lVsjIyMNBRSspPqVSyUsrIVKqtBQB6xuCnLwAAAA=="}\n`,
+    `END RequestId: 18269d91-6b89-4021-8b58-${reqId}\n`,
+    `REPORT RequestId: 18269d91-6b89-4021-8b58-${reqId}\tDuration: 509.89 ms\tBilled Duration: 510 ms\tMemory Size: 1024 MB\tMax Memory Used: 80 MB\t\nXRAY TraceId: 1-61f96332-54eba86c47245db57214005f\tSegmentId: 246eafc77f3a0d33\tSampled: true\t\n`,
+  ];
+}
+function mockNoStart(reqId) {
+  return [
+    `REPORT RequestId: 18269d91-6b89-4021-8b58-${reqId}\tDuration: 509.89 ms\tBilled Duration: 510 ms\tMemory Size: 1024 MB\tMax Memory Used: 80 MB\t\nXRAY TraceId: 1-61f96332-54eba86c47245db57214005f\tSegmentId: 246eafc77f3a0d33\tSampled: true\t\n`,
+  ];
+}
+function mockNoEnd(reqId) {
+  return [
+    `START RequestId: 18269d91-6b89-4021-8b58-${reqId} Version: $LATEST\n`,
+  ];
 }
