@@ -1,3 +1,4 @@
+import { FunctionConfiguration } from "@aws-sdk/client-lambda";
 import { memo, useEffect, useMemo, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { useParams } from "react-router-dom";
@@ -12,13 +13,14 @@ import {
   Toast,
   useOnScreen,
 } from "~/components";
-import { useFunctionInvoke, useLogsQuery } from "~/data/aws/function";
+import { useFunctionQuery, useFunctionInvoke, useLogsQuery } from "~/data/aws/function";
 import { useConstruct } from "~/data/aws/stacks";
 import { styled } from "~/stitches.config";
 import { H1, H3 } from "../components";
 import { FunctionMetadata } from "../../../../../resources/src/Metadata";
 import { useRealtimeState } from "~/data/global";
 import { InvocationRow } from "./Invocation";
+import { CWInvocationRow } from "./CWInvocation";
 import { Issues } from "./Issues";
 
 const Root = styled("div", {
@@ -38,6 +40,11 @@ export function Detail() {
     "Function",
     params.stack!,
     params.function!
+  );
+  const functionData = useFunctionQuery(functionMetadata.data.arn);
+  const isLocal = useRealtimeState(
+    s => s.functions[params.function] != undefined,
+    [params.function]
   );
 
   return (
@@ -60,7 +67,8 @@ export function Detail() {
             <H3>Invoke</H3>
             <Invoke metadata={functionMetadata} />
           </Stack>
-          <Invocations function={functionMetadata} />
+          { isLocal && <Invocations function={functionMetadata} /> }
+          { !isLocal && !functionData.isLoading && <Logs function={functionData} /> }
         </Stack>
       </Root>
     </>
@@ -113,37 +121,6 @@ const Invoke = memo((props: { metadata: FunctionMetadata }) => {
   );
 });
 
-const LogRow = styled("div", {
-  display: "flex",
-  padding: "$md 0",
-  fontSize: "$sm",
-  borderTop: "1px solid $border",
-  "&:first-child": {
-    border: 0,
-  },
-});
-
-const LogTime = styled("div", {
-  flexShrink: 0,
-  lineHeight: 1.75,
-});
-
-const LogMessage = styled("div", {
-  flexGrow: 1,
-  overflowX: "hidden",
-  lineHeight: 1.75,
-  wordWrap: "break-word",
-});
-
-const LogLoader = styled("div", {
-  width: "100%",
-  background: "$border",
-  textAlign: "center",
-  padding: "$md 0",
-  fontWeight: 600,
-  borderRadius: "6px",
-});
-
 function Invocations(props: { function: FunctionMetadata }) {
   const invocations = useRealtimeState(
     (s) => s.functions[props.function.data.localId]?.invocations || [],
@@ -171,45 +148,37 @@ function Invocations(props: { function: FunctionMetadata }) {
   );
 }
 
-function Logs(props: { functionName: string }) {
-  const logs = useLogsQuery({
-    functionName: props.functionName,
+function Logs(props: { function: FunctionConfiguration }) {
+  // Start fetching log in the last 1 minute
+  const invocations = useLogsQuery({
+    functionName: props.function.data.FunctionName!,
+    runtime: props.function.data.Runtime!,
   });
 
-  const ref: any = useRef<HTMLDivElement>();
-  const loaderVisible = useOnScreen(ref);
+  // Tail every 3 seconds
   useEffect(() => {
-    if (loaderVisible && logs.hasNextPage) logs.fetchNextPage();
-  }, [loaderVisible]);
+    const interval = setInterval(() => {
+      invocations.query.fetchNextPage();
+      console.log('tailing timer called');
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   return (
-    <div
-      onScroll={console.log}
-      style={{
-        width: "100%",
-      }}
-    >
-      {logs.data?.pages
-        .flatMap((page) => page.events)
-        .map((entry, index) => (
-          <LogRow key={index}>
-            <LogTime>{new Date(entry?.timestamp!).toISOString()}</LogTime>
-            <Spacer horizontal="lg" />
-            <LogMessage>{entry?.message}</LogMessage>
-          </LogRow>
+    <Stack space="lg" alignHorizontal="start">
+      <Stack space="sm">
+        <H3>Invocations</H3>
+        <Description>
+          {invocations.query.isError
+            ? "Failed to fetch logs"
+            : "Tailing for invocations..."}
+        </Description>
+      </Stack>
+      {invocations.data?.map((invocation, index) => (
+        <CWInvocationRow key={index} invocation={invocation} />
         ))}
-      {
-        <LogLoader ref={ref}>
-          {logs.isError
-            ? "No Logs"
-            : logs.isLoading
-            ? "Loading..."
-            : logs.hasNextPage
-            ? "Load More"
-            : "End of stream"}
-        </LogLoader>
-      }
-    </div>
+    </Stack>
   );
 }
 
