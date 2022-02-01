@@ -381,10 +381,10 @@ function groupLogs(logs) {
       currentInvocation.logStream = log.logStream;
       currentInvocation.firstLineTime = currentInvocation.firstLineTime || log.timestamp;
       currentInvocation.endTime = log.timestamp;
-      currentInvocation.duration = log.duration;
-      currentInvocation.memSize = log.memSize;
-      currentInvocation.memUsed = log.memUsed;
-      currentInvocation.xrayTraceId = log.xrayTraceId;
+      currentInvocation.duration = log.invocationMetadata?.duration;
+      currentInvocation.memSize = log.invocationMetadata?.memSize;
+      currentInvocation.memUsed = log.invocationMetadata?.memUsed;
+      currentInvocation.xrayTraceId = log.invocationMetadata?.xrayTraceId;
       invocations.push(currentInvocation);
       currentInvocation = { logs: [], logLevel: "INFO" };
     }
