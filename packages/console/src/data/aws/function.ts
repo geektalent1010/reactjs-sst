@@ -102,7 +102,6 @@ export function useLogsQuery(opts: LogsOpts) {
 
   // TODO
   const events = resp.data?.pages.flatMap(({ events }) => events) || [];
-  //console.log(JSON.stringify(resp.data.pages.pop()));
   //const events = mockLogEvents();
   const unique = uniqBy(events, (event) => event?.eventId);
   const sorted = sortLogs(unique);
@@ -306,8 +305,14 @@ function parseLambdaNodeLog(log, tabParts) {
       log.level = "WARN";
       log.message = tabParts.slice(3).join("\t");
     } else if (tabParts[2] === "ERROR") {
+      const errorName = tabParts[3].trim();
       log.level = "ERROR";
       log.message = tabParts.slice(3).join("\t");
+      log.invocationMetadata = log.invocationMetadata || {};
+      log.invocationMetadata.isFailed = log.invocationMetadata.isFailed
+        || tabParts[3] === "Invoke Error"
+        || tabParts[3] === "Uncaught Exception"
+        || tabParts[3] === "Unhandled Promise Rejection";
     }
     else {
       log.level = "INFO";
@@ -408,9 +413,13 @@ function mockLogEvents() {
   // most recent logs at the bottom
   const messages = [];
   [
+    mockErrorInit,
+    mockErrorTimeout,
+    mockErrorThrown,
     mockNoEnd,
     mockNoStart,
     mockLongJSONSummary,
+    mockLogLevels,
     mockDefault,
   ].forEach((mockFn, i) => {
     const reqId = `${i}`.padStart(12, "0");
@@ -435,6 +444,24 @@ function mockDefault(reqId) {
     `REPORT RequestId: 18269d91-6b89-4021-8b58-${reqId}\tDuration: 509.89 ms\tBilled Duration: 510 ms\tMemory Size: 1024 MB\tMax Memory Used: 80 MB\t\nXRAY TraceId: 1-61f96332-54eba86c47245db57214005f\tSegmentId: 246eafc77f3a0d33\tSampled: true\t\n`,
   ];
 }
+function mockLogLevels(reqId) {
+  return [
+    `START RequestId: 11ee14c4-1069-4850-8988-${reqId} Version: $LATEST\n`,
+    `2022-02-01T20:38:46.642Z\t11ee14c4-1069-4850-8988-${reqId}\tINFO\tabc12\n`,
+    `2022-02-01T20:38:46.642Z\t11ee14c4-1069-4850-8988-${reqId}\tINFO\tthis is a console.log\n`,
+    `2022-02-01T20:38:46.642Z\t11ee14c4-1069-4850-8988-${reqId}\tWARN\tthis is a console.warn\n`,
+    `2022-02-01T20:38:46.642Z\t11ee14c4-1069-4850-8988-${reqId}\tERROR\tthis is a console.error\n`,
+    `2022-02-01T20:38:46.642Z\t11ee14c4-1069-4850-8988-${reqId}\tINFO\tthis is a two\nline log\n`,
+    `2022-02-01T20:38:46.642Z\t11ee14c4-1069-4850-8988-${reqId}\tINFO\ttest\\period\n`,
+    `2022-02-01T20:38:46.642Z\t11ee14c4-1069-4850-8988-${reqId}\tINFO\ttest/period\n`,
+    `2022-02-01T20:38:46.642Z\t11ee14c4-1069-4850-8988-${reqId}\tINFO\ttest { method: 'test', path: 'abc' } period\n`,
+    `2022-02-01T20:38:46.644Z\t11ee14c4-1069-4850-8988-${reqId}\tINFO\t{ a: '1', b: '2' }\n`,
+    `2022-02-01T20:38:46.644Z\t11ee14c4-1069-4850-8988-${reqId}\tINFO\t{"a":"1","b":"2"}\n`,
+    `2022-02-01T20:38:46.682Z\t11ee14c4-1069-4850-8988-${reqId}\tINFO\tError\n    at Runtime.module.exports.main [as handler] (/var/task/handler.js:23:17)\n    at Runtime.handleOnce (/var/runtime/Runtime.js:66:25)\n`,
+    `END RequestId: 11ee14c4-1069-4850-8988-${reqId}\n`,
+    `REPORT RequestId: 11ee14c4-1069-4850-8988-${reqId}\tDuration: 58.96 ms\tBilled Duration: 59 ms\tMemory Size: 128 MB\tMax Memory Used: 56 MB\tInit Duration: 229.40 ms\t\nXRAY TraceId: 1-61f99a56-47e3ca9116ae85832325d1e5\tSegmentId: 11e737e3026f8575\tSampled: true\t\n`,
+  ];
+}
 function mockLongJSONSummary(reqId) {
   return [
     `START RequestId: 18269d91-6b89-4021-8b58-${reqId} Version: $LATEST\n`,
@@ -451,5 +478,44 @@ function mockNoStart(reqId) {
 function mockNoEnd(reqId) {
   return [
     `START RequestId: 18269d91-6b89-4021-8b58-${reqId} Version: $LATEST\n`,
+  ];
+}
+function mockErrorThrown(reqId) {
+  return [
+    `START RequestId: 073b4d85-2679-48fc-bfca-${reqId} Version: $LATEST\n`,
+    `2022-02-01T20:43:20.723Z\t073b4d85-2679-48fc-bfca-${reqId}\tINFO\tabc12\n`,
+    `2022-02-01T20:43:20.743Z\t073b4d85-2679-48fc-bfca-${reqId}\tERROR\tInvoke Error \t{\"errorType\":\"Error\",\"errorMessage\":\"this is an exception\",\"stack\":[\"Error: this is an exception\",\"    at _homogeneousError (/var/runtime/CallbackContext.js:12:12)\",\"    at postError (/var/runtime/CallbackContext.js:29:54)\",\"    at callback (/var/runtime/CallbackContext.js:41:7)\",\"    at /var/runtime/CallbackContext.js:106:16\",\"    at Runtime.handleOnce (/var/runtime/Runtime.js:78:7)\"]}\n`,
+    `END RequestId: 073b4d85-2679-48fc-bfca-${reqId}\n`,
+    `REPORT RequestId: 073b4d85-2679-48fc-bfca-${reqId}\tDuration: 76.32 ms\tBilled Duration: 77 ms\tMemory Size: 128 MB\tMax Memory Used: 57 MB\t\nXRAY TraceId: 1-61f99b68-4e36730716e1db5a6f5bdb3a\tSegmentId: 19d2419e35cd5c06\tSampled: true\t\n`,
+  ];
+}
+function mockErrorTimeout(reqId) {
+  return [
+    `START RequestId: c35741d3-8fdf-4ce7-b6cb-${reqId} Version: $LATEST\n`,
+    `2022-02-01T20:45:18.184Z\tc35741d3-8fdf-4ce7-b6cb-${reqId}\tINFO\tabc12\n`,
+    `END RequestId: c35741d3-8fdf-4ce7-b6cb-${reqId}\n`,
+    `REPORT RequestId: c35741d3-8fdf-4ce7-b6cb-${reqId}\tDuration: 10010.65 ms\tBilled Duration: 10000 ms\tMemory Size: 128 MB\tMax Memory Used: 62 MB\t\nXRAY TraceId: 1-61f99bde-5271d4b83fbc2b6d2ac0eb60\tSegmentId: 1757f8951ad79687\tSampled: true\t\n`,
+    `2022-02-01T20:45:28.182Z c35741d3-8fdf-4ce7-b6cb-${reqId} Task timed out after 10.01 seconds\n\n`,
+  ];
+}
+function mockErrorOOM(reqId) {
+  return [
+    `START RequestId: bafb0f6a-b194-4fdd-9601-${reqId} Version: $LATEST\n`,
+    `2022-02-01T20:48:01.367Z\tbafb0f6a-b194-4fdd-9601-${reqId}\tINFO\tabc12\n`,
+    `2022-02-01T20:48:01.367Z\tbafb0f6a-b194-4fdd-9601-${reqId}\tINFO\tcase: oom\n`,
+    `END RequestId: bafb0f6a-b194-4fdd-9601-${reqId}\n`,
+    `REPORT RequestId: bafb0f6a-b194-4fdd-9601-${reqId}\tDuration: 4237.92 ms\tBilled Duration: 4238 ms\tMemory Size: 128 MB\tMax Memory Used: 128 MB\t\nXRAY TraceId: 1-61f99c81-51bfb2f96a01b1b01f09cd4a\tSegmentId: 6bd816e6200583ae\tSampled: true\t\n`,
+    `RequestId: bafb0f6a-b194-4fdd-9601-${reqId} Error: Runtime exited with error: signal: killed\nRuntime.ExitError\n`,
+  ];
+}
+function mockErrorInit(reqId) {
+  return [
+    "2022-02-01T20:08:56.333Z\tundefined\tERROR\tUncaught Exception \t\"this is an exception outside of handler\"\n",
+    "EXTENSION\tName: my-extension\tState: Ready\tEvents: [INVOKE,SHUTDOWN]\n",
+    `START RequestId: 18269d91-6b89-4021-8b58-${reqId} Version: $LATEST\n`,
+    "2022-02-01T20:08:56.333Z\tundefined\tERROR\tUncaught Exception \t\"this is an exception outside of handler\"\n",
+    "EXTENSION\tName: my-extension\tState: Ready\tEvents: [INVOKE,SHUTDOWN]\n",
+    `END RequestId: 18269d91-6b89-4021-8b58-${reqId}\n`,
+    `REPORT RequestId: 18269d91-6b89-4021-8b58-${reqId}\tDuration: 509.89 ms\tBilled Duration: 510 ms\tMemory Size: 1024 MB\tMax Memory Used: 80 MB\t\nXRAY TraceId: 1-61f96332-54eba86c47245db57214005f\tSegmentId: 246eafc77f3a0d33\tSampled: true\t\n`,
   ];
 }
