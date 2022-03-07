@@ -2,9 +2,10 @@
   "name": "@serverless-stack/node",
   "version": "0.67",
   "type": "module",
+  "module": "./dist/index.js",
+  "main": "./dist/index.js",
   "exports": {
-    "./graphql": "./dist/esm/graphql.js",
-    "./config": "./dist/esm/config.js"
+    ".": "./dist/index.js"
   },
   "scripts": {
     "build": "yarn run build:esm",
