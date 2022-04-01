@@ -63,7 +63,6 @@
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
-    "prepare": "yarn run build",
     "test": "jest"
   }
 }
