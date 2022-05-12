@@ -1,10 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "./index.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Provider as UrqlProvider, createClient } from "urql";
-import { CognitoProvider, Cognito } from "@serverless-stack/web";
+import { CognitoProvider, Cognito, useCognito } from "@serverless-stack/web";
+import { Auth } from "./pages/Auth";
 
+console.log(import.meta.env);
 const cognito = new Cognito({
   UserPoolId: import.meta.env.VITE_COGNITO_USER_POOL_ID,
   ClientId: import.meta.env.VITE_COGNITO_CLIENT_ID,
@@ -24,12 +26,33 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <CognitoProvider value={cognito}>
       <UrqlProvider value={urql}>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<span>Hello</span>} />
-          </Routes>
-        </BrowserRouter>
+        <App />
       </UrqlProvider>
     </CognitoProvider>
   </React.StrictMode>
 );
+
+function App() {
+  console.log("Rendering app");
+  const cognito = useCognito();
+  if (cognito.isInitializing) return <span>Checking auth...</span>;
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/auth/*" element={<Auth />} />
+        <Route path="*" element={<Authenticated />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+function Authenticated() {
+  const auth = useCognito();
+  if (!auth.session) return <Navigate to="/auth/login" />;
+  return (
+    <Routes>
+      <Route path="/" element={<span>Hello</span>} />
+    </Routes>
+  );
+}

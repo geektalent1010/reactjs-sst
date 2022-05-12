@@ -127,4 +127,4 @@ const schemaAsString = printSchema(lexicographicSortSchema(schema));
 await fs.writeFile("schema.graphql", schemaAsString);
 
 import { execSync } from "child_process";
-execSync("npx zeus ./schema.graphql . --reactQuery");
+execSync("npx zeus ./schema.graphql . --typedDocumentNode");

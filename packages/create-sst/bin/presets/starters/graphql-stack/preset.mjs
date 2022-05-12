@@ -32,13 +32,7 @@ export default [
     path: "graphql",
   }),
   install({
-    packages: [
-      "react-router-dom",
-      "react-query",
-      "urql",
-      "graphql",
-      "@serverless-stack/web",
-    ],
+    packages: ["react-router-dom", "urql", "graphql", "@serverless-stack/web"],
     path: "web",
   }),
   remove("web/src/App.tsx"),
