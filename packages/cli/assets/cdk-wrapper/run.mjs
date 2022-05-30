@@ -2,23 +2,25 @@
 
 "use strict";
 
-process.on("uncaughtException", function (err) {
+process.on("uncaughtException", function(err) {
   console.error("\n" + (err.stack || err) + "\n");
   process.exit(1);
 });
-process.on("unhandledRejection", (err) => {
+process.on("unhandledRejection", err => {
   throw err;
 });
 
 import path from "path";
 import url from "url";
-import fs from "fs-extra";
+import fs from "fs";
 import chalk from "chalk";
 import * as sst from "@serverless-stack/resources";
 import { initializeLogger, Util } from "@serverless-stack/core";
 
 const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
-const config = fs.readJsonSync(path.join(__dirname, "./sst-merged.json"));
+const config = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "./sst-merged.json"))
+);
 const appPath = process.cwd();
 const buildDir = ".build";
 
@@ -37,7 +39,7 @@ if (config.debugEndpoint) {
 
 // Load environment variables from dotenv
 Util.Environment.load({
-  searchPaths: [`.env.${config.stage}.local`, `.env.${config.stage}`],
+  searchPaths: [`.env.${config.stage}.local`, `.env.${config.stage}`]
 });
 
 // Check first and throw an error
@@ -78,7 +80,7 @@ const app = new sst.App({
   debugBucketName: config.debugBucketName,
   debugStartedAt: config.debugStartedAt,
   debugIncreaseTimeout: config.debugIncreaseTimeout,
-  debugBridge: config.debugBridge,
+  debugBridge: config.debugBridge
 });
 
 // Run the handler
