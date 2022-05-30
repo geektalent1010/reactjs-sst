@@ -13,7 +13,6 @@ process.on("unhandledRejection", err => {
 import path from "path";
 import url from "url";
 import fs from "fs";
-import chalk from "chalk";
 import * as sst from "@serverless-stack/resources";
 import { initializeLogger, Util } from "@serverless-stack/core";
 
@@ -26,11 +25,6 @@ const buildDir = ".build";
 
 // Initialize logger
 initializeLogger(path.join(appPath, buildDir));
-
-// Disable color
-if (process.env.NO_COLOR === "true") {
-  chalk.level = 0;
-}
 
 // Set IS_LOCAL environment variable
 if (config.debugEndpoint) {
